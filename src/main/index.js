@@ -1,4 +1,5 @@
-import {app, BrowserWindow} from 'electron'
+import {app, BrowserWindow, ipcMain} from 'electron';
+import './db-connector';
 
 /**
  * Set `__static` path to static files in production
@@ -13,16 +14,8 @@ const winURL = process.env.NODE_ENV === 'development'
     ? `http://localhost:9080`
     : `file://${__dirname}/index.html`;
 
-function createWindow() {
-    /**
-     * Initial window options
-     */
-    mainWindow = new BrowserWindow({
-        height: 580,
-        width: 400,
-        resizable: false,
-        useContentSize: true,
-    });
+function createWindow(config) {
+    mainWindow = new BrowserWindow(config);
 
     mainWindow.loadURL(winURL);
     mainWindow.setMenu(null);
@@ -32,16 +25,46 @@ function createWindow() {
     });
 }
 
-app.on('ready', createWindow);
+// Connection window config
+const connConfig = {
+    height: 580,
+    width: 400,
+    resizable: false,
+    useContentSize: true
+};
+
+app.on('ready', () => {
+    createWindow(connConfig);
+});
+
+
+let quit = true;
 
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit()
+    if (process.platform !== 'darwin' && quit) {
+        app.quit();
     }
 });
 
 app.on('activate', () => {
     if (mainWindow === null) {
-        createWindow()
+        createWindow(connConfig);
     }
+});
+
+
+ipcMain.on('createNewWindow', () => {
+    quit = false;
+
+    mainWindow.close();
+
+    createWindow({
+        height: 680,
+        width: 900,
+        minHeight: 680,
+        minWidth: 900,
+        useContentSize: true
+    });
+
+    quit = true;
 });

@@ -2,54 +2,16 @@
     <div id="connect">
         <el-card class="card">
             <div slot="header">
-                <h3 class="title"><i class="fas fa-database"></i> &nbsp;&nbsp;{{type === 'mssql'? 'SQL':'MongoDB'}}
+                <h3 class="title text-center"><i class="fas fa-database icon"></i> &nbsp;&nbsp;{{type === 'mssql'?
+                    'SQL':'MongoDB'}}
                     Server Connection</h3>
             </div>
             <div>
-                <!-- Host -->
-                <!--#dd6161-->
-                <div class="input">
+                <div class="input" v-for="(input, key) in inputs" :key="key" :class="{error: input.error}">
                     <div class="label">
-                        <label for="host">Host</label>
+                        <label :for="key">{{key}}</label>
                     </div>
-                    <el-input id="host" placeholder="e.g. 192.168.0.2" v-model="host"/>
-                </div>
-
-                <!-- Port -->
-
-                <div class="input">
-                    <div class="label">
-                        <label for="port">Port</label>
-                    </div>
-                    <el-input id="port" v-model="port"/>
-                </div>
-
-                <!-- Username -->
-
-                <div class="input">
-                    <div class="label">
-                        <label for="username">Username</label>
-                    </div>
-                    <el-input id="username" v-model="username"></el-input>
-                </div>
-
-                <!-- Username -->
-
-                <div class="input">
-                    <div class="label">
-                        <label for="password">Password</label>
-                    </div>
-                    <el-input id="password" v-model="password"></el-input>
-                </div>
-
-
-                <!-- Database -->
-
-                <div class="input" v-if="type==='mssql'">
-                    <div class="label">
-                        <label for="database">Database</label>
-                    </div>
-                    <el-input id="database" v-model="database"></el-input>
+                    <el-input :id="key" :placeholder="input.placeholder" v-model="input.value" :type="input.type"/>
                 </div>
 
                 <!-- Buttons -->
@@ -77,6 +39,8 @@
 </template>
 
 <script>
+    import {ipcRenderer} from 'electron';
+
     export default {
         props: {
             type: {
@@ -86,14 +50,8 @@
             }
         },
         data() {
-            const type = this.$props.type;
-
             return {
-                host: '',
-                port: type === 'mssql' ? 36 : 27017,
-                username: '',
-                password: '',
-                database: '',
+                inputs: {},
                 connected: false,
                 loading: false
             };
@@ -101,14 +59,98 @@
 
         methods: {
             connect() {
+
+                // Make sure that fields are not empty
+
+                if (!this.isDataValid()) {
+                    // One or more fields are empty
+                    return;
+                }
+
+                // Show loading spinner
                 this.loading = true;
 
-                setTimeout(() => {
+                // Register connection event
+                // The main process will send reply through this channel after attempting to connect
+                ipcRenderer.once('connect', (event, connected) => {
                     this.loading = false;
-                    this.connected = true;
-                    this.$emit('connected');
-                }, 3000);
+
+                    if (connected) {
+                        // Database connection successful
+                        this.connected = true;
+                        this.$emit('connected');
+                    }
+
+                    // Database connection failed
+                });
+
+                // Tell the main process to connect
+
+                const type = this.$props.type;
+                let data = {};
+
+                // Filter data
+                for (let key in this.inputs) {
+                    data[key] = this.inputs[key].value;
+                }
+
+                console.log(data);
+
+                ipcRenderer.send('connect', {
+                    type: type,
+                    data: data
+                });
+            },
+
+            isDataValid() {
+                const inputs = this.inputs;
+                let error = false;
+
+                // Iterate over the inputs
+                for (let key in inputs) {
+
+                    // All the fields are required
+                    if (!inputs[key].value) {
+                        // No value provided
+                        // Show error
+                        inputs[key].error = error = true;
+                        continue;
+                    }
+
+                    // Ok
+                    inputs[key].error = false;
+                }
+
+                return !error;
             }
+        },
+
+        created() {
+
+            const inputs = ['host', 'port', 'username', 'password'];
+            // Mongodb's default port is 27017
+            let port = 27017;
+
+            // If database is mssql then port field is required
+            // Mssql's default port is 1433
+
+            if (this.$props.type === 'mssql') {
+                inputs.push('database');
+                port = 1433;
+            }
+
+            // Make data
+
+            const data = {};
+
+            inputs.forEach(input => data[input] = {
+                value: input === 'port' ? port : '', // Set port by default
+                placeholder: input === 'host' ? 'e.g. 192.168.0.2' : '',
+                error: false,
+                type: input === 'password' ? 'password' : 'text' // All the fields are text typed except password
+            });
+
+            this.$set(this.$data, 'inputs', data);
         }
     }
 </script>
@@ -127,11 +169,16 @@
 
         .label {
             padding-bottom: 10px;
+            text-transform: capitalize;
         }
 
         .card {
             height: calc(100vh - 2px);
             transition: unset;
+        }
+
+        .error input {
+            border-color: #dd6161;
         }
     }
 </style>

@@ -1,30 +1,35 @@
 <template>
     <div>
-        <connect type="mssql" v-if="$store.state.step === 1" @connected="next" key="step1"/>
-        <connect type="mongodb" v-else-if="$store.state.step === 2" @connected="next"  key="step2"/>
+        <connect type="mssql" v-if="connection.step === 1" @connected="next" key="step1"/>
+        <connect type="mongodb" v-else-if="connection.step === 2" @connected="next" key="step2"/>
     </div>
 </template>
 
 <script>
     import Connect from './db-connect';
+    import {mapState} from 'vuex';
+    import {ipcRenderer, remote} from 'electron';
 
     export default {
-        data() {
-            return {
-
-            };
-        },
+        computed: mapState(['connection']),
 
         methods: {
             next() {
-                this.$store.commit('nextStep');
+                const store = this.$store;
+
+                if (store.state.connection.step === 2) {
+                    // Database connections are set
+
+                    // Ask the main process to to close this window and create another
+                    ipcRenderer.send('createNewWindow');
+
+                    return;
+                }
+
+                store.commit('connectionNextStep');
             }
         },
 
         components: {Connect}
     }
 </script>
-
-<style lang="scss">
-
-</style>

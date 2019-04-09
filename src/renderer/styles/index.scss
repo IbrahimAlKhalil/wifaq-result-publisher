@@ -4,12 +4,16 @@
 
 // display
 
-$displays: flex block none inline-block;
+$displays: flex block;
 
 @each $display in $displays {
   .d-#{$display} {
     display: $display;
   }
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
 }
 
 
@@ -28,14 +32,12 @@ $aligns: center;
 
 // justify-content
 
-$justifies: center;
+.justify-content-center {
+  justify-content: center;
+}
 
-.justify-content- {
-  @each $justify in $justifies {
-    &#{$justify} {
-      justify-content: $justify;
-    }
-  }
+.justify-content-between {
+  justify-content: space-between;
 }
 
 
@@ -54,6 +56,12 @@ $count: 10;
   }
 
   $count: $count+10;
+}
+
+// Text
+
+.text-center {
+  text-align: center;
 }
 
 /********* Vue transitions **********/
@@ -80,4 +88,17 @@ body {
   margin: 0;
   background: #f5f5f5;
   font-family: system-ui, sans-serif;
+}
+
+.icon {
+  color: #3c3c3c;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c2cbd4;
+  border-radius: 20px;
 }
