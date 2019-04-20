@@ -51,11 +51,13 @@
     }
   },
   "dependencies": {
+    "moment": "^2.24.0",
     "mongodb": "^3.2.3",
     "mssql": "^5.0.5"
   },
   "devDependencies": {
     "@fortawesome/fontawesome-free": "^5.8.1",
+    "@types/mongodb": "^3.1.22",
     "@types/mssql": "^4.0.13",
     "ajv": "^6.5.0",
     "babel-core": "^6.26.3",

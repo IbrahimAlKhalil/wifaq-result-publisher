@@ -11,8 +11,8 @@
                                 <h4 class="title text-center"><i class="fas fa-tasks"></i>&nbsp;&nbsp;Process</h4>
                             </el-card>
                             <div class="process-details text-center">
-                                <process-info title="Started">10 Minutes ago</process-info>
-                                <process-info title="ETA">1 Day 23 Minutes</process-info>
+                                <process-info title="Started">{{started.string}}</process-info>
+                                <process-info title="ETA">{{eta}}</process-info>
                                 <process-info title="Tables">
                                     <el-progress type="circle"
                                                  :percentage="Math.round(100 * published / (queue.length || 1))"/>
@@ -59,9 +59,10 @@
     import Sidebar from './components/sidebar';
     import DbConnect from './components/db-connect-wrapper';
     import ProcessInfo from './components/process-info';
-    import {mapState} from "vuex";
 
+    import {mapState} from "vuex";
     import {ipcRenderer} from 'electron';
+    import moment from 'moment';
 
     export default {
         components: {DbConnect, Sidebar, ProcessInfo},
@@ -72,12 +73,15 @@
                 connection: state.connection,
                 initialized: false,
                 percentage: 0,
-                started: 5446454565,
-                eta: 9879877764,
                 current: null,
                 status: '',
                 published: 0,
-                running: false
+                running: false,
+                started: {
+                    string: 'n/a',
+                    timestamp: null
+                },
+                eta: 'n/a'
             }
         },
 
@@ -116,7 +120,35 @@
 
         methods: {
             publish() {
+                // Set process running
                 this.running = true;
+
+                // Show eta calculation message
+                this.eta = 'Calculating...';
+
+                // Make sure timestamp is null
+                if (this.started.timestamp === null) {
+                    this.started.timestamp = Date.now();
+                    const interval = setInterval(() => {
+                        // Don't update eta and started after process has ended
+                        if (!this.running) {
+                            clearInterval(interval);
+                            this.started.string = {
+                                string: 'n/a',
+                                timestamp: null
+                            };
+
+                            this.eta = 'n/a';
+
+                            return;
+                        }
+
+                        this.started.string = moment(this.started.timestamp).fromNow();
+                    }, 1000);
+                }
+
+                // Send checked tables to the main process
+                ipcRenderer.send('calculateEta', this.$store.state.queue);
             }
         },
 
@@ -133,8 +165,13 @@
                 this.initialized = true;
             });
 
-            // Ask the main process to provide connection info
+            // Ask the main process for providing connection info
             ipcRenderer.send('connectionInfo');
+
+            // Update ETA
+            ipcRenderer.on('eta', (event, eta) => {
+                this.eta = eta.insertion;
+            });
         }
     }
 </script>

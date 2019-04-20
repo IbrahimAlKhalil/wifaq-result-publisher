@@ -1,5 +1,5 @@
 <template>
-    <div id="sidebar">
+    <div id="sidebar" v-loading="!initialized">
         <el-card class="wrapper">
             <div slot="header">
                 <span :class="['d-flex align-items-center title-wrapper', showPublishBtn?'justify-content-between':'justify-content-center']">
@@ -7,8 +7,8 @@
                        <i class="fas fa-table icon"></i>&nbsp; Tables
                    </span>
 
-                    <el-button size="small" type="success" v-show="showPublishBtn" @click="publish" plain><i
-                            class="fas fa-file-export"></i>&nbsp;&nbsp;Publish</el-button>
+                    <el-button size="small" type="success" v-show="showPublishBtn" @click="publish"
+                               :disabled="!!queue.length" plain>Publish</el-button>
                 </span>
             </div>
             <div>
@@ -30,7 +30,14 @@
 </template>
 
 <script>
+    import {ipcRenderer} from "electron";
+
     export default {
+        data() {
+            return {
+                initialized: false,
+            };
+        },
         computed: {
             showPublishBtn() {
                 return this.tables.some(table => table.checked);
@@ -47,6 +54,7 @@
 
         methods: {
             publish() {
+                // Add checked tables to the queue
                 this.tables.forEach(table => {
                     if (table.checked && !this.queue.includes(table)) {
                         this.$set(table.rows, 'finished', 0);
@@ -56,6 +64,28 @@
 
                 this.$emit('published');
             }
+        },
+
+        created() {
+
+            // Get tables from the main process
+            ipcRenderer.on('getTables', (event, tables) => {
+                tables.forEach(table => {
+                    this.$store.commit('addTable', {
+                        name: table.name,
+                        checked: false,
+                        published: table.published,
+                        rows: {
+                            total: parseInt(table.rows)
+                        }
+                    });
+                });
+
+                this.initialized = true;
+            });
+
+            // Ask the main process for providing tables
+            ipcRenderer.send('provideTables');
         }
     }
 </script>

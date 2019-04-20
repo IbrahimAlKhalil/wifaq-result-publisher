@@ -1,5 +1,6 @@
 import {app, BrowserWindow, ipcMain} from 'electron';
 import './db-connector';
+import './crud';
 
 /**
  * Set `__static` path to static files in production
@@ -18,6 +19,8 @@ function createWindow(config) {
     mainWindow = new BrowserWindow(config);
 
     mainWindow.loadURL(winURL);
+
+    // Hide window menu
     mainWindow.setMenu(null);
 
     mainWindow.on('closed', () => {
@@ -41,6 +44,7 @@ app.on('ready', () => {
 let quit = true;
 
 app.on('window-all-closed', () => {
+    // Don't quit application based on connection window close event.
     if (process.platform !== 'darwin' && quit) {
         app.quit();
     }
@@ -54,10 +58,15 @@ app.on('activate', () => {
 
 
 ipcMain.on('createNewWindow', () => {
+    // The renderer process requested to create a new window and close the old one
+
+    // Don't let the window-all-closed event handler to quit the application
     quit = false;
 
+    // Close the old window
     mainWindow.close();
 
+    // Create new app window
     createWindow({
         height: 680,
         width: 900,
@@ -66,5 +75,6 @@ ipcMain.on('createNewWindow', () => {
         useContentSize: true
     });
 
+    // Let the window-all-closed event handler to quit the application
     quit = true;
 });

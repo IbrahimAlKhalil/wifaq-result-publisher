@@ -3,12 +3,18 @@ import * as sql from 'mssql';
 import {MongoClient} from 'mongodb';
 
 // MongoDB client
-export let mongoClient;
+let mongoClient;
 
 let connectionInfo = {
     mssql: false,
     mongodb: false
 };
+
+let mongoUrl = '';
+
+export function getMongoUrl() {
+    return mongoUrl;
+}
 
 // This function will be used to connect mssql server
 function connectMssql(data) {
@@ -34,9 +40,9 @@ function connectMssql(data) {
 // This function will be used to connect mssql server
 function connectMongoDB(data) {
     return new Promise(async (resolve, reject) => {
-        mongoClient = new MongoClient(`mongodb://${data.username}:${data.password}@${data.host}:${data.port}`, {useNewUrlParser: true});
         try {
-            await mongoClient.connect();
+            mongoUrl = `mongodb://${data.username}:${data.password}@${data.host}:${data.port}`;
+            mongoClient = await (new MongoClient(mongoUrl, {useNewUrlParser: true})).connect();
             resolve();
         } catch (e) {
             reject(e);
@@ -81,7 +87,7 @@ ipcMain.on('connect', async (event, payload) => {
 
         // Show success message
         (new Notification({
-            title: 'Database Connection Error',
+            title: 'Wifaq Result Publisher',
             body: `Connected to ${serverName} Server successfully!`
         })).show();
 
@@ -92,7 +98,7 @@ ipcMain.on('connect', async (event, payload) => {
 
         // Show error message
         (new Notification({
-            title: 'Database Connection Error',
+            title: 'Wifaq Result Publisher',
             body: e.message
         })).show();
 
