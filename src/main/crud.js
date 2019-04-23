@@ -1,10 +1,7 @@
 import * as sql from 'mssql';
-import {ipcMain} from 'electron';
-import {MongoClient} from 'mongodb';
-import {getMongoUrl} from './db-connector';
-import moment from 'moment';
-
-const mongoClientOptions = {useNewUrlParser: true};
+import {ipcMain, Notification} from 'electron';
+import mongoClient from './mongo-singleton';
+import bijoy from './bijoy';
 
 ipcMain.on('provideTables', async event => {
 
@@ -19,7 +16,7 @@ ipcMain.on('provideTables', async event => {
         "ORDER BY o.NAME");
 
     // Connect mongodb server
-    const client = await MongoClient.connect(getMongoUrl(), mongoClientOptions);
+    const client = await mongoClient();
 
     // Get all the documents in session collection
     const docs = client.db('results').collection('sessions').find();
@@ -29,74 +26,33 @@ ipcMain.on('provideTables', async event => {
 
     // We need nothing more than id to check whether the table is already published
     const sessionNames = sessions.map(session => {
-        return session._id;
+        return session.name;
     });
 
-    // Close the connection
-    client.close();
+    // Exclude tables which aren't for results
+    const tablesFiltered = tables.recordset.filter(table => /stu_result\d{4}/.test(table.name))
+        .map(table => {
+            table.published = sessionNames.includes(table.name.replace('stu_result', ''));
+            return table;
+        });
 
     // Iterate over the table list and check whether the table is already published
-    event.sender.send('getTables', tables.recordset.map(table => {
-        table.published = sessionNames.includes(table.name.replace('stu_result', ''));
-        return table;
-    }));
-});
-
-ipcMain.on('calculateEta', async (event, tables) => {
-    // Calculate ETA and send to the renderer process
-    if (!tables.length) {
-        return;
-    }
-
-    const insertionStartTime = Date.now();
-
-    const students = await sql.query(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY MID) AS Seq FROM ${tables[0].name})t
-                                      WHERE Seq BETWEEN 0 AND 200`);
-
-    // Connect mongodb server
-    const mongoClient = await MongoClient.connect(getMongoUrl(), mongoClientOptions);
-
-    // Create Testing database
-    const etaCalculation = mongoClient.db('eta_calculation');
-
-    // Insert Results
-    await etaCalculation.collection('results').insertMany(organizeStudents(students, getYearFromName(tables[0].name)));
-
-    // Starting time of index creation and end time of insertion
-    const indexingStartTime = Date.now();
-
-    // Create index
-    await etaCalculation.collection('results').createIndex({
-        roll: 1,
-        year: 1,
-        classId: 1
-    }, {
-        unique: true
-    });
-
-    const endTime = Date.now();
-
-    // Drop testing database
-    await etaCalculation.dropDatabase();
-
-    const eta = (indexingStartTime - insertionStartTime + endTime - indexingStartTime) / 200 * tables.map(table => table.rows.total).reduce((a, b) => a + b);
-
-    event.sender.send('eta', {
-        insertion: moment(insertionStartTime).fromNow()
-    });
+    event.sender.send('getTables', tablesFiltered);
 });
 
 ipcMain.on('publish', async (event, tables) => {
-    // Calculate ETA and send to the renderer process
     if (!tables.length) {
         return;
     }
 
-    publish().then(() => {
+    publish(tables, event).then(() => {
         event.sender.send('published');
+        (new Notification({
+            title: 'Wifaq Result Publisher',
+            body: `The publishing process has been completed successfully!`
+        })).show();
     });
 });
-
 
 function organizeStudents(students, year) {
     return students.recordset.map(student => {
@@ -104,29 +60,29 @@ function organizeStudents(students, year) {
 
         for (let i = 1; i < 12; i++) {
             results.push({
-                name: student[`SubLabel_${i}`],
+                name: bijoy(student[`SubLabel_${i}`]),
                 value: student[`SubValue_${i}`]
             });
         }
 
         return {
-            name: student.Name,
+            name: bijoy(student.Name),
             roll: student.Roll,
-            father: student.Father,
+            father: bijoy(student.Father),
             dob: student.DateofBirth,
             absence: student.Absence,
             gender: student.SRType,
-            markaj: student.Markaj,
+            markaj: bijoy(student.Markaj),
             elhaq: student.MElhaq,
-            division: student.Division,
-            madrasa: student.Madrasa,
-            graceLabel: student.GraceLabel,
+            division: bijoy(student.Division),
+            madrasa: bijoy(student.Madrasha),
+            graceLabel: bijoy(student.GraceLabel),
             graceValue: student.GraceValue,
             position: student.Positions,
             classId: student.CID,
             regId: student.ALID,
-            posSub: student.PosSub,
-            year,
+            posSub: bijoy(student.PosSub),
+            year: bijoy(year),
             results
         };
     });
@@ -136,33 +92,131 @@ function getYearFromName(tableName) {
     return tableName.replace('stu_result', '');
 }
 
+function publish(tables, event, insertPerQuery = 200, iterationCount = Infinity) {
 
-function publish(db, tables, insertPerQuery, iterationCount) {
     return new Promise(async resolve => {
-
-        // Total rows to be published
-        const totalRows = tables.map(table => table.rows.total).reduce((a, b) => a + b);
-        let rowsFinished = 0;
+        let currentTableIndex = 0;
+        let insertedRows = 0;
 
         // Connect mongodb server
-        const mongoClient = await MongoClient.connect(getMongoUrl(), mongoClientOptions);
+        const client = await mongoClient();
 
         // MongoDB Database
-        const etaCalculation = mongoClient.db(db);
+        const db = client.db('results');
 
-        const insert = async () => {
-            while (rowsFinished < totalRows) {
-                const students = await sql.query(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY MID) AS Seq FROM ${tables[0].name})t
-                                      WHERE Seq BETWEEN 0 AND 200`);
-            }
+        const publishTable = () => {
+            return new Promise(resolve1 => {
+                const currentTable = tables[currentTableIndex];
+
+                // Change current process
+                event.sender.send('currentProcess', {
+                    type: 'insertion',
+                    table: currentTable.name,
+                });
+
+                // Insert documents
+                promiseChain(insert, isFinite(iterationCount) ? iterationCount : Math.ceil(currentTable.rows.total / insertPerQuery), false).then(() => {
+                    currentTableIndex++;
+                    insertedRows = 0;
+
+                    event.sender.send('tablePublished', currentTable.name);
+                    resolve1();
+                });
+            });
         };
 
+
+        const insert = async () => {
+            const startTime = Date.now();
+            const students = await sql.query(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY MID) AS Seq FROM ${tables[currentTableIndex].name})t
+                                      WHERE Seq BETWEEN ${insertedRows + 1} AND ${insertedRows + insertPerQuery}`);
+            insertedRows += insertPerQuery;
+
+            await db.collection('students').insertMany(organizeStudents(students, getYearFromName(tables[currentTableIndex].name)));
+
+            event.sender.send('rowsInserted', {
+                count: students.recordset.length,
+                time: (Date.now() - startTime) / insertPerQuery
+            });
+        };
+
+        const indexes = [
+            {
+                fields: ['roll', 'year', 'classId'],
+                unique: true
+            },
+
+            {
+                fields: ['year', 'classId', 'elhaq'],
+                unique: false
+            },
+
+            {
+                fields: ['year', 'classId', 'gender'],
+                unique: false
+            },
+
+            {
+                fields: ['elhaq'],
+                unique: false
+            }
+        ];
+
+        let currentIndexIndex = 0;
+        const doIndex = async () => {
+            let fields = {};
+            let currentIndex = indexes[currentIndexIndex++];
+
+            currentIndex.fields.forEach(field => {
+                fields[field] = 1;
+            });
+
+            await db.collection('students').createIndex(fields, {
+                unique: currentIndex.unique
+            });
+        };
+
+        // Insert documents
+        await promiseChain(publishTable, tables.length);
+
+        event.sender.send('currentProcess', {
+            type: 'indexing'
+        });
+
+        // Create indexes
+        await promiseChain(doIndex, indexes.length);
+
+        // Session entries
+        await db.collection('sessions').insertMany(tables.map(table => ({
+            name: getYearFromName(table.name)
+        })));
+
+        // Comment this line before going to production
+
+        // db.dropDatabase();
+
+        resolve();
     });
 }
 
+function promiseChain(func, times = 1, resolveData = true) {
+    return new Promise(async resolve => {
+        if (typeof func !== "function") {
+            return resolve();
+        }
 
-function publishTable() {
+        const resolves = [];
 
+        for (let i = 1; i < times + 1; i++) {
+            const data = await func();
+
+            resolveData && resolves.push(data);
+
+            if (i === times) {
+                return resolve(resolves);
+            }
+        }
+    });
 }
 
 

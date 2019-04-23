@@ -30,9 +30,20 @@ let store = new Vuex.Store({
         },
         addToQueue(state, table) {
             state.queue.push(table);
+            table.publishing = true;
         },
         addTable(state, table) {
             state.tables.push(table);
+        },
+        addRowsInserted(state, payload) {
+            payload.table.rows.inserted += payload.inserted;
+        },
+        setTablePublished(state, table) {
+            table.published = true;
+            table.publishing = false;
+        },
+        restore(state) {
+            state.queue = [];
         }
     }
 });

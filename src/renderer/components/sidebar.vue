@@ -15,12 +15,12 @@
                 <el-checkbox v-for="(table, index) in tables"
                              :key="index"
                              v-model="table.checked"
-                             :disabled="queue.includes(table)"
+                             :disabled="0 < queue.length || table.published"
                              class="table">
                     <span class="label">
                         <span>{{table.name}}</span>
                         <span>
-                            <i :class="queue.includes(table)?'el-icon-loading':table.published?'el-icon-success':''"></i>
+                            <i :class="table.published?'el-icon-success':table.publishing?'el-icon-loading':''"></i>
                         </span>
                     </span>
                 </el-checkbox>
@@ -57,7 +57,6 @@
                 // Add checked tables to the queue
                 this.tables.forEach(table => {
                     if (table.checked && !this.queue.includes(table)) {
-                        this.$set(table.rows, 'finished', 0);
                         this.$store.commit('addToQueue', table);
                     }
                 });
@@ -75,8 +74,10 @@
                         name: table.name,
                         checked: false,
                         published: table.published,
+                        publishing: false,
                         rows: {
-                            total: parseInt(table.rows)
+                            total: parseInt(table.rows),
+                            inserted: 0
                         }
                     });
                 });

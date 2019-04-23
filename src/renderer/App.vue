@@ -12,39 +12,43 @@
                             </el-card>
                             <div class="process-details text-center">
                                 <process-info title="Started">{{started.string}}</process-info>
-                                <process-info title="ETA">{{eta}}</process-info>
+                                <process-info title="Will be finished">{{etaString}}</process-info>
                                 <process-info title="Tables">
                                     <el-progress type="circle"
-                                                 :percentage="Math.round(100 * published / (queue.length || 1))"/>
+                                                 :percentage="finished?0:Math.round(100 * tablesPublished / (queue.length || 1))"
+                                                 :status="statusClass"/>
                                     <h5 class="mt title">
-                                        <span>{{running?published:0}}</span>
+                                        <span>{{running?tablesPublished:0}}</span>
                                         <span>/</span>
                                         <span>{{queue.length}}</span>
                                     </h5>
                                 </process-info>
                                 <process-info title="Rows">
                                     <el-progress type="circle"
-                                                 :percentage="Math.round(100 * rowsFinished / (rows || 1))"/>
+                                                 :percentage="Math.round(100 * rowsInserted / (rows || 1))"
+                                                 :status="statusClass"/>
                                     <h5 class="mt title">
-                                        <span>{{rowsFinished}}</span>
+                                        <span>{{rowsInserted}}</span>
                                         <span>/</span>
                                         <span>{{rows}}</span>
                                     </h5>
                                 </process-info>
                             </div>
                             <process-info title="Whole process" class="mt">
-                                <el-progress :percentage="percentage"/>
-                                <h5 class="mt title">{{status}}</h5>
+                                <el-progress :percentage="wholeProcess"/>
                             </process-info>
                             <transition name="slide-fade">
-                                <process-info title="Currently processing Table" class="mt" v-if="current">
-                                    <el-progress
-                                            :percentage="Math.round(100 * current.rows.finished / (current.rows.total || 1))"/>
-                                    <h5 class="mt title">
-                                        <span>{{current.rows.finished}}</span>
-                                        <span>/</span>
-                                        <span>{{current.rows.total}}</span>
-                                    </h5>
+                                <process-info v-if="current" :title="current.title" class="mt">
+                                    <template v-if="current.type === 'insertion'">
+                                        <el-progress
+                                                :percentage="Math.round(100 * current.table.rows.inserted / (current.table.rows.total || 1))"/>
+                                        <h5 class="mt title">
+                                            <span>{{current.table.rows.inserted}}</span>
+                                            <span>/</span>
+                                            <span>{{current.table.rows.total}}</span>
+                                        </h5>
+                                    </template>
+                                    <p v-else>Indexing...</p>
                                 </process-info>
                             </transition>
                         </div>
@@ -72,16 +76,14 @@
             return {
                 connection: state.connection,
                 initialized: false,
-                percentage: 0,
                 current: null,
-                status: '',
-                published: 0,
                 running: false,
+                finished: false,
                 started: {
                     string: 'n/a',
                     timestamp: null
                 },
-                eta: 'n/a'
+                eta: null
             }
         },
 
@@ -100,21 +102,42 @@
                 return count;
             },
 
-            rowsFinished() {
+            rowsInserted() {
                 // Show zero rows if process is not running
                 if (!this.running) {
                     return 0;
                 }
 
                 let count = 0;
-                this.$store.state.queue.forEach(table => {
-                    count += table.rows.finished;
+                this.queue.forEach(table => {
+                    count += table.rows.inserted;
                 });
 
                 return count;
             },
+            tablesPublished() {
+                return this.queue.filter(table => table.published).length;
+            },
+            wholeProcess() {
+                if (this.finished) {
+                    return 0;
+                }
+
+                return Math.round(96 * this.rowsInserted / (this.rows || 1));
+            },
+            statusClass() {
+                return (this.rowsInserted && this.rows) && this.rowsInserted === this.rows ? 'success' : undefined;
+            },
+            etaString() {
+                if (!this.eta) {
+                    return 'n/a';
+                }
+
+                return moment(this.eta).fromNow();
+            },
             ...mapState({
-                queue: 'queue'
+                queue: 'queue',
+                tables: 'tables'
             })
         },
 
@@ -123,9 +146,6 @@
                 // Set process running
                 this.running = true;
 
-                // Show eta calculation message
-                this.eta = 'Calculating...';
-
                 // Make sure timestamp is null
                 if (this.started.timestamp === null) {
                     this.started.timestamp = Date.now();
@@ -133,12 +153,10 @@
                         // Don't update eta and started after process has ended
                         if (!this.running) {
                             clearInterval(interval);
-                            this.started.string = {
+                            this.started = {
                                 string: 'n/a',
                                 timestamp: null
                             };
-
-                            this.eta = 'n/a';
 
                             return;
                         }
@@ -147,8 +165,7 @@
                     }, 1000);
                 }
 
-                // Send checked tables to the main process
-                ipcRenderer.send('calculateEta', this.$store.state.queue);
+                ipcRenderer.send('publish', this.queue);
             }
         },
 
@@ -168,9 +185,46 @@
             // Ask the main process for providing connection info
             ipcRenderer.send('connectionInfo');
 
-            // Update ETA
-            ipcRenderer.on('eta', (event, eta) => {
-                this.eta = eta.insertion;
+            ipcRenderer.on('currentProcess', (event, process) => {
+                if (process.type === 'insertion') {
+                    this.current = {
+                        type: 'insertion',
+                        title: `Publishing table ${process.table}`,
+                        table: this.tables.filter(table => table.name === process.table)[0]
+                    };
+
+                    return;
+                }
+
+                this.current = {
+                    type: 'indexing',
+                    title: 'Indexing documents'
+                }
+            });
+
+            ipcRenderer.on('rowsInserted', (event, payload) => {
+                this.$store.commit('addRowsInserted', {
+                    table: this.current.table,
+                    inserted: parseInt(payload.count)
+                });
+
+                this.eta = Date.now() + (payload.time * (this.rows - this.rowsInserted));
+            });
+
+            ipcRenderer.on('tablePublished', (event, tableName) => {
+                const table = this.tables.filter(table => table.name === tableName)[0];
+
+                this.$store.commit('setTablePublished', table);
+            });
+
+            ipcRenderer.on('published', () => {
+                // Restore app state
+                this.$store.commit('restore');
+
+                this.current = null;
+                this.running = false;
+                this.finished = true;
+                this.eta = null;
             });
         }
     }

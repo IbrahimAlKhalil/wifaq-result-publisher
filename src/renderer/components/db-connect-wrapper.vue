@@ -8,7 +8,7 @@
 <script>
     import Connect from './db-connect';
     import {mapState} from 'vuex';
-    import {ipcRenderer, remote} from 'electron';
+    import {ipcRenderer} from 'electron';
 
     export default {
         computed: mapState(['connection']),

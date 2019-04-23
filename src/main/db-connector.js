@@ -1,20 +1,11 @@
 import {ipcMain, Notification} from "electron";
 import * as sql from 'mssql';
-import {MongoClient} from 'mongodb';
-
-// MongoDB client
-let mongoClient;
+import mongoClient from './mongo-singleton';
 
 let connectionInfo = {
     mssql: false,
     mongodb: false
 };
-
-let mongoUrl = '';
-
-export function getMongoUrl() {
-    return mongoUrl;
-}
 
 // This function will be used to connect mssql server
 function connectMssql(data) {
@@ -37,20 +28,6 @@ function connectMssql(data) {
 }
 
 
-// This function will be used to connect mssql server
-function connectMongoDB(data) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            mongoUrl = `mongodb://${data.username}:${data.password}@${data.host}:${data.port}`;
-            mongoClient = await (new MongoClient(mongoUrl, {useNewUrlParser: true})).connect();
-            resolve();
-        } catch (e) {
-            reject(e);
-        }
-    });
-}
-
-
 ipcMain.on('connectionInfo', event => {
     // The renderer process asked for connection info
 
@@ -62,17 +39,14 @@ ipcMain.on('connect', async (event, payload) => {
     // The renderer process asked for database connection
 
     let connector;
-    let client;
     let serverName;
 
     // Check what type of connection to be made
     if (payload.type === 'mssql') {
         connector = connectMssql;
-        client = sql;
         serverName = 'SQL';
     } else {
-        connector = connectMongoDB;
-        client = mongoClient;
+        connector = mongoClient;
         serverName = 'MongoDB';
     }
 
@@ -101,8 +75,5 @@ ipcMain.on('connect', async (event, payload) => {
             title: 'Wifaq Result Publisher',
             body: e.message
         })).show();
-
-        // Close the connection pool
-        client.close();
     }
 });
