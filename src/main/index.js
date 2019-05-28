@@ -30,7 +30,7 @@ function createWindow(config) {
 
 // Connection window config
 const connConfig = {
-    height: 580,
+    height: 630,
     width: 400,
     resizable: false,
     useContentSize: true
@@ -68,9 +68,9 @@ ipcMain.on('createNewWindow', () => {
 
     // Create new app window
     createWindow({
-        height: 680,
+        height: 650,
         width: 900,
-        minHeight: 680,
+        minHeight: 650,
         minWidth: 900,
         useContentSize: true
     });

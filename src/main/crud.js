@@ -8,12 +8,12 @@ ipcMain.on('provideTables', async event => {
     // Get table list
     // We don't need to reconnect SQL server because SQL client has a concept of global connection pool
     // and of course we're already connected
-    const tables = await sql.query("SELECT o.NAME as name,\n" +
-        "  i.rowcnt as rows \n" +
-        "FROM sysindexes AS i\n" +
-        "  INNER JOIN sysobjects AS o ON i.id = o.id \n" +
-        "WHERE i.indid < 2  AND OBJECTPROPERTY(o.id, 'IsMSShipped') = 0\n" +
-        "ORDER BY o.NAME");
+    const tables = await sql.query('SELECT o.NAME as name,\n' +
+        '  i.rowcnt as rows \n' +
+        'FROM sysindexes AS i\n' +
+        '  INNER JOIN sysobjects AS o ON i.id = o.id \n' +
+        'WHERE i.indid < 2  AND OBJECTPROPERTY(o.id, \'IsMSShipped\') = 0\n' +
+        'ORDER BY o.NAME');
 
     // Connect mongodb server
     const client = await mongoClient();
@@ -26,7 +26,7 @@ ipcMain.on('provideTables', async event => {
 
     // We need nothing more than id to check whether the table is already published
     const sessionNames = sessions.map(session => {
-        return session.name;
+        return session._id;
     });
 
     // Exclude tables which aren't for results
@@ -55,37 +55,53 @@ ipcMain.on('publish', async (event, tables) => {
 });
 
 function organizeStudents(students, year) {
-    return students.recordset.map(student => {
+    const result = {
+        students: [],
+        madrasas: [],
+        markajes: []
+    };
+
+    students.recordset.forEach(student => {
         const results = [];
 
         for (let i = 1; i < 12; i++) {
-            results.push({
-                name: bijoy(student[`SubLabel_${i}`]),
-                value: student[`SubValue_${i}`]
-            });
+            if (student[`SubLabel_${i}`]) {
+                results.push(student[`SubValue_${i}`]);
+            }
         }
 
-        return {
+        result.students.push({
             name: bijoy(student.Name),
             roll: student.Roll,
             father: bijoy(student.Father),
             dob: student.DateofBirth,
-            absence: student.Absence,
             gender: student.SRType,
-            markaj: bijoy(student.Markaj),
             elhaq: student.MElhaq,
+            markaj: student.MarID,
             division: bijoy(student.Division),
-            madrasa: bijoy(student.Madrasha),
             graceLabel: bijoy(student.GraceLabel),
             graceValue: student.GraceValue,
             position: student.Positions,
             classId: student.CID,
             regId: student.ALID,
-            posSub: bijoy(student.PosSub),
-            year: bijoy(year),
+            posSub: student.PosSub,
+            total: student.Total,
+            year: year,
             results
-        };
+        });
+
+        result.madrasas.push({
+            _: student.MElhaq,
+            n: bijoy(student.Madrasha)
+        });
+
+        result.markajes.push({
+            _: student.MarID,
+            n: bijoy(student.Markaj)
+        });
     });
+
+    return result;
 }
 
 function getYearFromName(tableName) {
@@ -125,14 +141,42 @@ function publish(tables, event, insertPerQuery = 200, iterationCount = Infinity)
             });
         };
 
-
         const insert = async () => {
             const startTime = Date.now();
             const students = await sql.query(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY MID) AS Seq FROM ${tables[currentTableIndex].name})t
                                       WHERE Seq BETWEEN ${insertedRows + 1} AND ${insertedRows + insertPerQuery}`);
             insertedRows += insertPerQuery;
 
-            await db.collection('students').insertMany(organizeStudents(students, getYearFromName(tables[currentTableIndex].name)));
+            const organized = organizeStudents(students, getYearFromName(tables[currentTableIndex].name));
+
+            await db.collection('students').insertMany(organized.students);
+
+
+            // Insert madrasas
+            for (let i = 0; i < organized.madrasas.length; i++) {
+                await db.collection('madrasas').updateOne({
+                    _id: organized.madrasas[i]._
+                }, {
+                    $setOnInsert: {
+                        name: organized.madrasas[i].n
+                    }
+                }, {
+                    upsert: true
+                });
+            }
+
+            // Insert markajes
+            for (let i = 0; i < organized.markajes.length; i++) {
+                await db.collection('markajes').updateOne({
+                    _id: organized.markajes[i]._
+                }, {
+                    $setOnInsert: {
+                        name: organized.markajes[i].n
+                    }
+                }, {
+                    upsert: true
+                });
+            }
 
             event.sender.send('rowsInserted', {
                 count: students.recordset.length,
@@ -152,7 +196,7 @@ function publish(tables, event, insertPerQuery = 200, iterationCount = Infinity)
             },
 
             {
-                fields: ['year', 'classId', 'gender'],
+                fields: ['year', 'classId', 'gender', 'position'],
                 unique: false
             },
 
@@ -187,9 +231,42 @@ function publish(tables, event, insertPerQuery = 200, iterationCount = Infinity)
         await promiseChain(doIndex, indexes.length);
 
         // Session entries
+        // Insert sessions and subjects
         await db.collection('sessions').insertMany(tables.map(table => ({
-            name: getYearFromName(table.name)
+            _id: getYearFromName(table.name)
         })));
+
+        const docs = [];
+        for (let table of tables) {
+            let classIdQuery = await sql.query(`SELECT DISTINCT CID FROM ${table.name}`);
+            let classIds = classIdQuery.recordset.map(item => item.CID);
+
+            for (let classId of classIds) {
+                let studentQuery = await sql.query(`SELECT TOP 1 * FROM ${table.name} WHERE CID = ${classId}`);
+                let student = studentQuery.recordset[0];
+                let subjects = [];
+
+                for (let i = 1; i < 12; i++) {
+
+                    let label = bijoy(student[`SubLabel_${i}`]);
+                    if (label) subjects.push(label);
+                }
+
+                docs.push({
+                    year: getYearFromName(table.name),
+                    classId,
+                    subjects
+                });
+            }
+        }
+
+        await db.collection('subjects').insertMany(docs);
+        await db.collection('subjects').createIndex({
+            year: 1,
+            classId: 1
+        }, {
+            unique: true
+        });
 
         // Comment this line before going to production
 
@@ -201,7 +278,7 @@ function publish(tables, event, insertPerQuery = 200, iterationCount = Infinity)
 
 function promiseChain(func, times = 1, resolveData = true) {
     return new Promise(async resolve => {
-        if (typeof func !== "function") {
+        if (typeof func !== 'function') {
             return resolve();
         }
 

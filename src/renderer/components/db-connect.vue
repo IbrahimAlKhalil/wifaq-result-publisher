@@ -154,40 +154,40 @@
 
             /************ Comment out these lines before going to production *****************/
 
-            // ipcRenderer.once('connect', (event, connected) => {
-            //     this.loading = false;
-            //
-            //     if (connected) {
-            //         // Database connection successful
-            //         this.connected = true;
-            //         this.$emit('connected');
-            //     }
-            //
-            //     // Database connection failed
-            // });
-            //
-            // if(this.$props.type === 'mssql') {
-            //     ipcRenderer.send('connect', {
-            //         type: 'mssql',
-            //         data: {
-            //             host: '103.200.37.130',
-            //             port: '8082',
-            //             username: 'osama',
-            //             password: 'osama',
-            //             database: 'WifaqResult'
-            //         }
-            //     });
-            // } else {
-            //     ipcRenderer.send('connect', {
-            //         type: 'mongodb',
-            //         data: {
-            //             host: 'localhost',
-            //             port: '27017',
-            //             username: 'admin',
-            //             password: 'k'
-            //         }
-            //     });
-            // }
+            /*ipcRenderer.once('connect', (event, connected) => {
+                this.loading = false;
+
+                if (connected) {
+                    // Database connection successful
+                    this.connected = true;
+                    this.$emit('connected');
+                }
+
+                // Database connection failed
+            });
+
+            if(this.$props.type === 'mssql') {
+                ipcRenderer.send('connect', {
+                    type: 'mssql',
+                    data: {
+                        host: '103.200.37.130',
+                        port: '8082',
+                        username: 'osama',
+                        password: 'osama',
+                        database: 'WifaqResult'
+                    }
+                });
+            } else {
+                ipcRenderer.send('connect', {
+                    type: 'mongodb',
+                    data: {
+                        host: 'localhost',
+                        port: '27017',
+                        username: 'admin',
+                        password: 'k'
+                    }
+                });
+            }*/
 
             /*********************************************************************/
         }
